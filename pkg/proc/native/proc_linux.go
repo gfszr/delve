@@ -6,6 +6,7 @@ import (
 	"debug/elf"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -62,7 +63,7 @@ func (os *osProcessDetails) Close() {
 // to be supplied to that process. `wd` is working directory of the program.
 // If the DWARF information cannot be found in the binary, Delve will look
 // for external debug files in the directories passed in.
-func Launch(cmd []string, wd string, flags proc.LaunchFlags, debugInfoDirs []string, tty string, redirects [3]string) (*proc.Target, error) {
+func Launch(cmd []string, wd string, flags proc.LaunchFlags, debugInfoDirs []string, tty string, redirects [3]string, outputRedirects [2]io.Writer) (*proc.Target, error) {
 	var (
 		process *exec.Cmd
 		err     error
@@ -70,7 +71,7 @@ func Launch(cmd []string, wd string, flags proc.LaunchFlags, debugInfoDirs []str
 
 	foreground := flags&proc.LaunchForeground != 0
 
-	stdin, stdout, stderr, closefn, err := openRedirects(redirects, foreground)
+	stdin, stdout, stderr, closefn, err := openRedirects(redirects, outputRedirects, foreground)
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +631,8 @@ func (dbp *nativeProcess) stop(cctx *proc.ContinueOnceContext, trapthread *nativ
 				pc, _ := th.PC()
 				for _, bpinstr := range [][]byte{
 					dbp.BinInfo().Arch.BreakpointInstruction(),
-					dbp.BinInfo().Arch.AltBreakpointInstruction()} {
+					dbp.BinInfo().Arch.AltBreakpointInstruction(),
+				} {
 					if bpinstr == nil {
 						continue
 					}

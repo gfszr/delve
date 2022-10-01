@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/constant"
 	"go/token"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -36,8 +37,10 @@ import (
 	"github.com/go-delve/delve/service/api"
 )
 
-var normalLoadConfig = proc.LoadConfig{true, 1, 64, 64, -1, 0}
-var testBackend, buildMode string
+var (
+	normalLoadConfig       = proc.LoadConfig{true, 1, 64, 64, -1, 0}
+	testBackend, buildMode string
+)
 
 func init() {
 	runtime.GOMAXPROCS(4)
@@ -102,7 +105,7 @@ func withTestProcessArgs(name string, t testing.TB, wd string, args []string, bu
 
 	switch testBackend {
 	case "native":
-		p, err = native.Launch(append([]string{fixture.Path}, args...), wd, 0, []string{}, "", [3]string{})
+		p, err = native.Launch(append([]string{fixture.Path}, args...), wd, 0, []string{}, "", [3]string{}, [2]io.Writer{})
 	case "lldb":
 		p, err = gdbserial.LLDBLaunch(append([]string{fixture.Path}, args...), wd, 0, []string{}, "", [3]string{})
 	case "rr":
@@ -427,11 +430,11 @@ func testseq(program string, contFunc contFunc, testcases []nextTest, initialLoc
 
 const traceTestseq2 = true
 
-func testseq2(t *testing.T, program string, initialLocation string, testcases []seqTest) {
+func testseq2(t *testing.T, program, initialLocation string, testcases []seqTest) {
 	testseq2Args(".", []string{}, 0, t, program, initialLocation, testcases)
 }
 
-func testseq2Args(wd string, args []string, buildFlags protest.BuildFlags, t *testing.T, program string, initialLocation string, testcases []seqTest) {
+func testseq2Args(wd string, args []string, buildFlags protest.BuildFlags, t *testing.T, program, initialLocation string, testcases []seqTest) {
 	protest.AllowRecording(t)
 	withTestProcessArgs(program, t, wd, args, buildFlags, func(p *proc.Target, fixture protest.Fixture) {
 		var bp *proc.Breakpoint
@@ -933,7 +936,6 @@ func TestStacktrace2(t *testing.T) {
 			t.Fatalf("Stack error at main.g()\n%v\n", locations)
 		}
 	})
-
 }
 
 func stackMatch(stack []loc, locations []proc.Stackframe, skipRuntime bool) bool {
@@ -1045,7 +1047,7 @@ func TestKill(t *testing.T) {
 		}
 		if runtime.GOOS == "linux" {
 			if runtime.GOARCH == "arm64" {
-				//there is no any sync between signal sended(tracee handled) and open /proc/%d/. It may fail on arm64
+				// there is no any sync between signal sended(tracee handled) and open /proc/%d/. It may fail on arm64
 				return
 			}
 			_, err := os.Open(fmt.Sprintf("/proc/%d/", p.Pid()))
@@ -1980,7 +1982,7 @@ func TestIssue414(t *testing.T) {
 }
 
 func TestPackageVariables(t *testing.T) {
-	var skippedVariable = map[string]bool{
+	skippedVariable := map[string]bool{
 		"runtime.uint16Eface": true,
 		"runtime.uint32Eface": true,
 		"runtime.uint64Eface": true,
@@ -2225,7 +2227,7 @@ func TestUnsupportedArch(t *testing.T) {
 
 	switch testBackend {
 	case "native":
-		p, err = native.Launch([]string{outfile}, ".", 0, []string{}, "", [3]string{})
+		p, err = native.Launch([]string{outfile}, ".", 0, []string{}, "", [3]string{}, [2]io.Writer{})
 	case "lldb":
 		p, err = gdbserial.LLDBLaunch([]string{outfile}, ".", 0, []string{}, "", [3]string{})
 	default:
@@ -2277,7 +2279,8 @@ func TestNextDeferReturnAndDirectCall(t *testing.T) {
 		{10, 11},
 		{11, 12},
 		{12, 13},
-		{13, 28}}, "main.callAndDeferReturn", t)
+		{13, 28},
+	}, "main.callAndDeferReturn", t)
 }
 
 func TestNextPanicAndDirectCall(t *testing.T) {
@@ -2289,20 +2292,23 @@ func TestNextPanicAndDirectCall(t *testing.T) {
 			{15, 16},
 			{16, 17},
 			{17, 18},
-			{18, 6}}, "main.callAndPanic2", t)
+			{18, 6},
+		}, "main.callAndPanic2", t)
 	} else {
 		testseq("defercall", contNext, []nextTest{
 			{15, 16},
 			{16, 17},
 			{17, 18},
-			{18, 5}}, "main.callAndPanic2", t)
+			{18, 5},
+		}, "main.callAndPanic2", t)
 	}
 }
 
 func TestStepCall(t *testing.T) {
 	testseq("testnextprog", contStep, []nextTest{
 		{34, 13},
-		{13, 14}}, "", t)
+		{13, 14},
+	}, "", t)
 }
 
 func TestStepCallPtr(t *testing.T) {
@@ -2313,14 +2319,16 @@ func TestStepCallPtr(t *testing.T) {
 			{9, 10},
 			{10, 6},
 			{6, 7},
-			{7, 11}}, "", t)
+			{7, 11},
+		}, "", t)
 	} else {
 		testseq("teststepprog", contStep, []nextTest{
 			{9, 10},
 			{10, 5},
 			{5, 6},
 			{6, 7},
-			{7, 11}}, "", t)
+			{7, 11},
+		}, "", t)
 	}
 }
 
@@ -2334,7 +2342,8 @@ func TestStepReturnAndPanic(t *testing.T) {
 			{6, 7},
 			{7, 18},
 			{18, 6},
-			{6, 7}}, "", t)
+			{6, 7},
+		}, "", t)
 	case goversion.VersionAfterOrEqual(runtime.Version(), 1, 10):
 		testseq("defercall", contStep, []nextTest{
 			{17, 5},
@@ -2343,7 +2352,8 @@ func TestStepReturnAndPanic(t *testing.T) {
 			{7, 18},
 			{18, 5},
 			{5, 6},
-			{6, 7}}, "", t)
+			{6, 7},
+		}, "", t)
 	case goversion.VersionAfterOrEqual(runtime.Version(), 1, 9):
 		testseq("defercall", contStep, []nextTest{
 			{17, 5},
@@ -2353,7 +2363,8 @@ func TestStepReturnAndPanic(t *testing.T) {
 			{17, 18},
 			{18, 5},
 			{5, 6},
-			{6, 7}}, "", t)
+			{6, 7},
+		}, "", t)
 	default:
 		testseq("defercall", contStep, []nextTest{
 			{17, 5},
@@ -2362,7 +2373,8 @@ func TestStepReturnAndPanic(t *testing.T) {
 			{7, 18},
 			{18, 5},
 			{5, 6},
-			{6, 7}}, "", t)
+			{6, 7},
+		}, "", t)
 	}
 }
 
@@ -2378,7 +2390,8 @@ func TestStepDeferReturn(t *testing.T) {
 			{13, 6},
 			{6, 7},
 			{7, 13},
-			{13, 28}}, "", t)
+			{13, 28},
+		}, "", t)
 	} else {
 		testseq("defercall", contStep, []nextTest{
 			{11, 5},
@@ -2390,7 +2403,8 @@ func TestStepDeferReturn(t *testing.T) {
 			{5, 6},
 			{6, 7},
 			{7, 13},
-			{13, 28}}, "", t)
+			{13, 28},
+		}, "", t)
 	}
 }
 
@@ -2404,24 +2418,28 @@ func TestStepIgnorePrivateRuntime(t *testing.T) {
 			{13, 14},
 			{14, 15},
 			{15, 17},
-			{17, 22}}, "", t)
+			{17, 22},
+		}, "", t)
 	case goversion.VersionAfterOrEqual(runtime.Version(), 1, 17):
 		testseq("teststepprog", contStep, []nextTest{
 			{21, 14},
 			{14, 15},
 			{15, 17},
-			{17, 22}}, "", t)
+			{17, 22},
+		}, "", t)
 	case goversion.VersionAfterOrEqual(runtime.Version(), 1, 11):
 		testseq("teststepprog", contStep, []nextTest{
 			{21, 14},
 			{14, 15},
-			{15, 22}}, "", t)
+			{15, 22},
+		}, "", t)
 	case goversion.VersionAfterOrEqual(runtime.Version(), 1, 10):
 		testseq("teststepprog", contStep, []nextTest{
 			{21, 13},
 			{13, 14},
 			{14, 15},
-			{15, 22}}, "", t)
+			{15, 22},
+		}, "", t)
 	case goversion.VersionAfterOrEqual(runtime.Version(), 1, 7):
 		testseq("teststepprog", contStep, []nextTest{
 			{21, 13},
@@ -2429,14 +2447,16 @@ func TestStepIgnorePrivateRuntime(t *testing.T) {
 			{14, 15},
 			{15, 14},
 			{14, 17},
-			{17, 22}}, "", t)
+			{17, 22},
+		}, "", t)
 	default:
 		testseq("teststepprog", contStep, []nextTest{
 			{21, 13},
 			{13, 14},
 			{14, 15},
 			{15, 17},
-			{17, 22}}, "", t)
+			{17, 22},
+		}, "", t)
 	}
 }
 
@@ -2700,7 +2720,8 @@ func TestStepOutDeferReturnAndDirectCall(t *testing.T) {
 	// Here we test the case where the function is called by a deferreturn
 	testseq2(t, "defercall", "", []seqTest{
 		{contContinue, 11},
-		{contStepout, 28}})
+		{contStepout, 28},
+	})
 }
 
 func TestStepInstructionOnBreakpoint(t *testing.T) {
@@ -2800,11 +2821,13 @@ func TestStepOutPanicAndDirectCall(t *testing.T) {
 	if goversion.VersionAfterOrEqual(runtime.Version(), 1, 11) {
 		testseq2(t, "defercall", "", []seqTest{
 			{contContinue, 17},
-			{contStepout, 6}})
+			{contStepout, 6},
+		})
 	} else {
 		testseq2(t, "defercall", "", []seqTest{
 			{contContinue, 17},
-			{contStepout, 5}})
+			{contStepout, 5},
+		})
 	}
 }
 
@@ -3426,11 +3449,12 @@ func TestCgoStacktrace(t *testing.T) {
 	// frame than those listed here but all the frames listed must appear in
 	// the specified order.
 	testCases := [][]string{
-		[]string{"main.main"},
-		[]string{"C.helloworld_pt2", "C.helloworld", "main.main"},
-		[]string{"main.helloWorldS", "main.helloWorld", "C.helloworld_pt2", "C.helloworld", "main.main"},
-		[]string{"C.helloworld_pt4", "C.helloworld_pt3", "main.helloWorldS", "main.helloWorld", "C.helloworld_pt2", "C.helloworld", "main.main"},
-		[]string{"main.helloWorld2", "C.helloworld_pt4", "C.helloworld_pt3", "main.helloWorldS", "main.helloWorld", "C.helloworld_pt2", "C.helloworld", "main.main"}}
+		{"main.main"},
+		{"C.helloworld_pt2", "C.helloworld", "main.main"},
+		{"main.helloWorldS", "main.helloWorld", "C.helloworld_pt2", "C.helloworld", "main.main"},
+		{"C.helloworld_pt4", "C.helloworld_pt3", "main.helloWorldS", "main.helloWorld", "C.helloworld_pt2", "C.helloworld", "main.main"},
+		{"main.helloWorld2", "C.helloworld_pt4", "C.helloworld_pt3", "main.helloWorldS", "main.helloWorld", "C.helloworld_pt2", "C.helloworld", "main.main"},
+	}
 
 	var gid int64
 
@@ -3865,14 +3889,14 @@ func TestInlinedStacktraceAndVariables(t *testing.T) {
 		line: 7,
 		ok:   false,
 		varChecks: []varCheck{
-			varCheck{
+			{
 				name:   "a",
 				typ:    "int",
 				kind:   reflect.Int,
 				hasVal: true,
 				intVal: 3,
 			},
-			varCheck{
+			{
 				name:   "z",
 				typ:    "int",
 				kind:   reflect.Int,
@@ -3886,14 +3910,14 @@ func TestInlinedStacktraceAndVariables(t *testing.T) {
 		line: 7,
 		ok:   false,
 		varChecks: []varCheck{
-			varCheck{
+			{
 				name:   "a",
 				typ:    "int",
 				kind:   reflect.Int,
 				hasVal: true,
 				intVal: 4,
 			},
-			varCheck{
+			{
 				name:   "z",
 				typ:    "int",
 				kind:   reflect.Int,
@@ -4271,7 +4295,8 @@ func TestReadDefer(t *testing.T) {
 			{2, "main.f1", []string{"main.f1", "main.f2"}},
 
 			// main.main (defers nothing)
-			{3, "", []string{}}}
+			{3, "", []string{}},
+		}
 
 		defercheck := func(d *proc.Defer, deferName, tgt string, frameIdx int) {
 			if d == nil {
@@ -4333,7 +4358,7 @@ func TestReadDeferArgs(t *testing.T) {
 		// disabled for now.
 		t.Skip("unsupported")
 	}
-	var tests = []struct {
+	tests := []struct {
 		frame, deferCall int
 		a, b             int64
 	}{
@@ -4667,12 +4692,13 @@ func TestPluginStepping(t *testing.T) {
 		{contStep, "plugin2.go:22"},
 		{contNext, "plugin2.go:23"},
 		{contNext, "plugin2.go:26"},
-		{contNext, "plugintest2.go:42"}})
+		{contNext, "plugintest2.go:42"},
+	})
 }
 
 func TestIssue1601(t *testing.T) {
 	protest.MustHaveCgo(t)
-	//Tests that recursive types involving C qualifiers and typedefs are parsed correctly
+	// Tests that recursive types involving C qualifiers and typedefs are parsed correctly
 	withTestProcess("issue1601", t, func(p *proc.Target, fixture protest.Fixture) {
 		assertNoError(p.Continue(), t, "Continue")
 		evalVariable(p, t, "C.globalq")
@@ -5028,7 +5054,8 @@ func TestStepIntoWrapperForEmbeddedPointer(t *testing.T) {
 		{contContinueToBreakpoint, 29}, // main.main, the line calling iface.NonPtrReceiver()
 		{contStep, 22},                 // main.(A).NonPtrReceiver
 		{contStep, 23},
-		{contStepout, 29}})
+		{contStepout, 29},
+	})
 
 	// same test but with next instead of stepout
 	if goversion.VersionAfterOrEqual(runtime.Version(), 1, 14) && runtime.GOARCH != "386" && !goversion.VersionAfterOrEqualRev(runtime.Version(), 1, 15, 4) {
@@ -5043,7 +5070,8 @@ func TestStepIntoWrapperForEmbeddedPointer(t *testing.T) {
 			{contStep, 22},
 			{contNext, 23},
 			{contNext, 23},
-			{contNext, 29}})
+			{contNext, 29},
+		})
 	} else {
 		testseq2(t, "ifaceembcall", "", []seqTest{
 			{contContinue, 28}, // main.main, the line calling iface.PtrReceiver()
@@ -5053,8 +5081,8 @@ func TestStepIntoWrapperForEmbeddedPointer(t *testing.T) {
 			{contContinueToBreakpoint, 29}, // main.main, the line calling iface.NonPtrReceiver()
 			{contStep, 22},
 			{contNext, 23},
-			{contNext, 29}})
-
+			{contNext, 29},
+		})
 	}
 }
 
@@ -5832,7 +5860,8 @@ func TestSetYMMRegister(t *testing.T) {
 			0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
 			0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
 			0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-			0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44}))
+			0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+		}))
 		assertNoError(p.CurrentThread().StepInstruction(), t, "SetpInstruction")
 
 		xmm0 := getReg("after")
@@ -5962,7 +5991,7 @@ func TestGnuDebuglink(t *testing.T) {
 	buf, err := ioutil.ReadFile(fixture.Path)
 	assertNoError(err, t, "ReadFile")
 	debuglinkPath := fixture.Path + "-gnu_debuglink"
-	assertNoError(ioutil.WriteFile(debuglinkPath, buf, 0666), t, "WriteFile")
+	assertNoError(ioutil.WriteFile(debuglinkPath, buf, 0o666), t, "WriteFile")
 	defer os.Remove(debuglinkPath)
 
 	run := func(exe string, args ...string) {

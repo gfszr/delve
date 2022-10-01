@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,6 +140,9 @@ type Config struct {
 	// Redirects specifies redirect rules for stdin, stdout and stderr
 	Redirects [3]string
 
+	// Redirects outputs to a generic writer rather than to a file path
+	OutputWriterRedirects [2]io.Writer
+
 	// DisableASLR disables ASLR
 	DisableASLR bool
 }
@@ -260,7 +264,7 @@ func (d *Debugger) Launch(processArgs []string, wd string) (*proc.Target, error)
 
 	switch d.config.Backend {
 	case "native":
-		return native.Launch(processArgs, wd, launchFlags, d.config.DebugInfoDirectories, d.config.TTY, d.config.Redirects)
+		return native.Launch(processArgs, wd, launchFlags, d.config.DebugInfoDirectories, d.config.TTY, d.config.Redirects, d.config.OutputWriterRedirects)
 	case "lldb":
 		return betterGdbserialLaunchError(gdbserial.LLDBLaunch(processArgs, wd, launchFlags, d.config.DebugInfoDirectories, d.config.TTY, d.config.Redirects))
 	case "rr":
@@ -306,7 +310,7 @@ func (d *Debugger) Launch(processArgs []string, wd string) (*proc.Target, error)
 		if runtime.GOOS == "darwin" {
 			return betterGdbserialLaunchError(gdbserial.LLDBLaunch(processArgs, wd, launchFlags, d.config.DebugInfoDirectories, d.config.TTY, d.config.Redirects))
 		}
-		return native.Launch(processArgs, wd, launchFlags, d.config.DebugInfoDirectories, d.config.TTY, d.config.Redirects)
+		return native.Launch(processArgs, wd, launchFlags, d.config.DebugInfoDirectories, d.config.TTY, d.config.Redirects, d.config.OutputWriterRedirects)
 	default:
 		return nil, fmt.Errorf("unknown backend %q", d.config.Backend)
 	}
@@ -727,7 +731,6 @@ func (d *Debugger) CreateBreakpoint(requestedBp *api.Breakpoint, locExpr string,
 		}
 	}
 	createdBp, err := createLogicalBreakpoint(d, requestedBp, &setbp)
-
 	if err != nil {
 		return nil, err
 	}
@@ -2024,7 +2027,6 @@ func (d *Debugger) ListDynamicLibraries() []*proc.Image {
 	d.targetMutex.Lock()
 	defer d.targetMutex.Unlock()
 	return d.target.Selected.BinInfo().Images[1:] // skips the first image because it's the executable file
-
 }
 
 // ExamineMemory returns the raw memory stored at the given address.
@@ -2118,7 +2120,7 @@ func (d *Debugger) DumpStart(dest string) error {
 	d.targetMutex.Lock()
 	// targetMutex will only be unlocked when the dump is done
 
-	//TODO(aarzilli): what do we do if the user switches to a different target after starting a dump but before it's finished?
+	// TODO(aarzilli): what do we do if the user switches to a different target after starting a dump but before it's finished?
 
 	if !d.target.Selected.CanDump {
 		d.targetMutex.Unlock()
@@ -2270,7 +2272,7 @@ func verifyBinaryFormat(exePath string) error {
 		if err != nil {
 			return err
 		}
-		if (fi.Mode() & 0111) == 0 {
+		if (fi.Mode() & 0o111) == 0 {
 			return api.ErrNotExecutable
 		}
 	}

@@ -1,6 +1,7 @@
 package native
 
 import (
+	"io"
 	"os"
 	"runtime"
 
@@ -308,7 +309,7 @@ func (dbp *nativeProcess) writeSoftwareBreakpoint(thread *nativeThread, addr uin
 	return err
 }
 
-func openRedirects(redirects [3]string, foreground bool) (stdin, stdout, stderr *os.File, closefn func(), err error) {
+func openRedirects(redirects [3]string, outputRedirects [2]io.Writer, foreground bool) (stdin *os.File, stdout, stderr io.Writer, closefn func(), err error) {
 	toclose := []*os.File{}
 
 	if redirects[0] != "" {
@@ -321,7 +322,10 @@ func openRedirects(redirects [3]string, foreground bool) (stdin, stdout, stderr 
 		stdin = os.Stdin
 	}
 
-	create := func(path string, dflt *os.File) *os.File {
+	create := func(path string, w io.Writer, dflt *os.File) io.Writer {
+		if w != nil {
+			return w
+		}
 		if path == "" {
 			return dflt
 		}
@@ -333,12 +337,12 @@ func openRedirects(redirects [3]string, foreground bool) (stdin, stdout, stderr 
 		return f
 	}
 
-	stdout = create(redirects[1], os.Stdout)
+	stdout = create(redirects[1], outputRedirects[0], os.Stdout)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	stderr = create(redirects[2], os.Stderr)
+	stderr = create(redirects[2], outputRedirects[1], os.Stderr)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
